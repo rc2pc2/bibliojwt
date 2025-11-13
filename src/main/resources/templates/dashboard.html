@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+</head>
+<body>
+<div class="container mt-5">
+    <div class="row">
+        <div class="col-md-12">
+            <h2>Benvenuto, <span th:text="${fullName}"></span>!</h2>
+            <p>Ruolo: <span th:text="${user.role}"></span></p>
+            
+            <div class="btn-group mt-3" role="group">
+                <a href="/profile" class="btn btn-primary">
+                    <i class="bi bi-person-circle"></i> Il mio Profilo
+                </a>
+                <form th:action="@{/logout}" method="post" class="d-inline">
+                    <button class="btn btn-danger" type="submit">
+                        <i class="bi bi-box-arrow-right"></i> Logout
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
