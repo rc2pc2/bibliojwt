@@ -30,11 +30,13 @@ import java.util.UUID;
  * CONFIGURAZIONE:
  * - refresh-token.duration-days: durata in giorni (default 7)
  * - refresh-token.max-per-user: max sessioni simultanee (default 5)
- * - refresh-token.cleanup-schedule: cron per pulizia (default ogni giorno alle 3 AM)
+ * - refresh-token.cleanup-schedule: cron per pulizia (default ogni giorno alle
+ * 3 AM)
  * 
  * SICUREZZA:
  * - Token Rotation: ogni refresh genera nuovo token e invalida il vecchio
- * - Reuse Detection: se un token revocato viene riutilizzato, invalida TUTTI i token dell'utente
+ * - Reuse Detection: se un token revocato viene riutilizzato, invalida TUTTI i
+ * token dell'utente
  * - Scadenza: token automaticamente scaduti dopo N giorni
  * - Rate Limiting: max tentativi refresh per prevenire brute force
  * 
@@ -52,8 +54,12 @@ import java.util.UUID;
  * - Se l'attaccante prova a riutilizzarlo, il sistema rileva l'anomalia
  * - Tutti i token dell'utente vengono revocati per sicurezza
  * 
- * @see <a href="https://auth0.com/docs/secure/tokens/refresh-tokens/refresh-token-rotation">Auth0 Token Rotation</a>
- * @see <a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-security-topics">OAuth 2.0 Security Best Practices</a>
+ * @see <a href=
+ *      "https://auth0.com/docs/secure/tokens/refresh-tokens/refresh-token-rotation">Auth0
+ *      Token Rotation</a>
+ * @see <a href=
+ *      "https://datatracker.ietf.org/doc/html/draft-ietf-oauth-security-topics">OAuth
+ *      2.0 Security Best Practices</a>
  */
 @Service
 @Transactional
@@ -104,10 +110,11 @@ public class RefreshTokenService {
      * 5. Salva nuovo token nel database
      * 
      * PARAMETRI OPZIONALI:
+     * 
      * @param userAgent User-Agent del client (per audit)
      * @param ipAddress IP del client (per rilevare accessi anomali)
      * 
-     * @param user l'utente per cui creare il token
+     * @param user      l'utente per cui creare il token
      * @return il refresh token creato
      */
     public RefreshToken createRefreshToken(User user) {
@@ -120,22 +127,17 @@ public class RefreshTokenService {
     public RefreshToken createRefreshToken(User user, String userAgent, String ipAddress) {
         // Verifica limite token per utente
         long activeTokensCount = refreshTokenRepository.countActiveTokensByUser(user, Instant.now());
-        
+
         if (activeTokensCount >= maxTokensPerUser) {
             logger.warn("🚨 Utente {} ha raggiunto il limite di {} token attivi. " +
-                       "Elimino il token più vecchio.", user.getEmail(), maxTokensPerUser);
-            
-            // Trova e elimina il token più vecchio
-            List<RefreshToken> activeTokens = refreshTokenRepository
-                .findActiveTokensByUser(user, Instant.now());
-            
-            if (!activeTokens.isEmpty()) {
-                RefreshToken oldestToken = activeTokens.stream()
-                    .min((t1, t2) -> t1.getCreatedAt().compareTo(t2.getCreatedAt()))
-                    .orElseThrow();
-                
+                    "Elimino il token più vecchio.", user.getEmail(), maxTokensPerUser);
+
+            // Elimina il token più vecchio
+            RefreshToken oldestToken = refreshTokenRepository.findOldestActiveTokenByUser(user, Instant.now());
+
+            if (oldestToken != null) {
+                logger.info("Elimino token: {}", oldestToken.getToken());
                 refreshTokenRepository.delete(oldestToken);
-                logger.info("✅ Token più vecchio eliminato: {}", oldestToken.getToken());
             }
         }
 
@@ -148,10 +150,10 @@ public class RefreshTokenService {
         refreshToken.setIpAddress(ipAddress);
 
         RefreshToken savedToken = refreshTokenRepository.save(refreshToken);
-        
-        logger.info("✅ Nuovo refresh token creato per utente {} (scade: {})", 
-                   user.getEmail(), expiryDate);
-        
+
+        logger.info("✅ Nuovo refresh token creato per utente {} (scade: {})",
+                user.getEmail(), expiryDate);
+
         return savedToken;
     }
 
@@ -178,32 +180,31 @@ public class RefreshTokenService {
      */
     public RefreshToken verifyRefreshToken(String tokenValue) {
         RefreshToken token = refreshTokenRepository.findByToken(tokenValue)
-            .orElseThrow(() -> {
-                logger.warn("❌ Tentativo di uso di refresh token inesistente: {}", tokenValue);
-                return new InvalidTokenException("Refresh token non trovato o non valido");
-            });
+                .orElseThrow(() -> {
+                    logger.warn("❌ Tentativo di uso di refresh token inesistente: {}", tokenValue);
+                    return new InvalidTokenException("Refresh token non trovato o non valido");
+                });
 
         // SECURITY CHECK: Token Reuse Detection
         if (token.isRevoked()) {
             logger.error("🚨 SECURITY ALERT: Tentativo di riutilizzo di token revocato! " +
-                        "Token: {} | Utente: {} | Possibile attacco in corso!", 
-                        tokenValue, token.getUser().getEmail());
-            
+                    "Token: {} | Utente: {} | Possibile attacco in corso!",
+                    tokenValue, token.getUser().getEmail());
+
             // Revoca TUTTI i token dell'utente per sicurezza
             int revokedCount = refreshTokenRepository.revokeAllUserTokens(token.getUser());
-            
+
             logger.error("🔒 Per sicurezza, revocati tutti i {} token dell'utente {}. " +
-                        "L'utente dovrà rifare login su tutti i dispositivi.", 
-                        revokedCount, token.getUser().getEmail());
-            
+                    "L'utente dovrà rifare login su tutti i dispositivi.",
+                    revokedCount, token.getUser().getEmail());
+
             // TODO: Invia notifica email all'utente
             // TODO: Alert amministratori di sistema
             // TODO: Registra evento in security audit log
-            
+
             throw new InvalidTokenException(
-                "Token revocato riutilizzato! Per sicurezza tutte le sessioni sono state invalidate. " +
-                "Per favore effettua nuovamente il login."
-            );
+                    "Token revocato riutilizzato! Per sicurezza tutte le sessioni sono state invalidate. " +
+                            "Per favore effettua nuovamente il login.");
         }
 
         // Check scadenza
@@ -214,14 +215,14 @@ public class RefreshTokenService {
 
         // Check utente attivo
         if (!token.getUser().isEnabled()) {
-            logger.warn("🚫 Tentativo di refresh con utente disabilitato: {}", 
-                       token.getUser().getEmail());
+            logger.warn("🚫 Tentativo di refresh con utente disabilitato: {}",
+                    token.getUser().getEmail());
             throw new InvalidTokenException("Account disabilitato");
         }
 
-        logger.info("✅ Refresh token validato con successo per utente {}", 
-                   token.getUser().getEmail());
-        
+        logger.info("✅ Refresh token validato con successo per utente {}",
+                token.getUser().getEmail());
+
         return token;
     }
 
@@ -255,28 +256,28 @@ public class RefreshTokenService {
      * - Attacco neutralizzato!
      * 
      * @param oldTokenValue il vecchio token da sostituire
-     * @param userAgent User-Agent per il nuovo token
-     * @param ipAddress IP address per il nuovo token
+     * @param userAgent     User-Agent per il nuovo token
+     * @param ipAddress     IP address per il nuovo token
      * @return il nuovo token generato
      * @throws InvalidTokenException se vecchio token non valido
      */
     public RefreshToken rotateRefreshToken(String oldTokenValue, String userAgent, String ipAddress) {
         logger.info("🔄 Inizio rotazione refresh token");
-        
+
         // 1. Valida vecchio token (include tutti i security checks)
         RefreshToken oldToken = verifyRefreshToken(oldTokenValue);
         User user = oldToken.getUser();
-        
+
         // 2. REVOCA immediatamente il vecchio token
         oldToken.setRevoked(true);
         refreshTokenRepository.save(oldToken);
         logger.info("🔒 Vecchio token revocato: {}", oldTokenValue);
-        
+
         // 3. Genera nuovo token
         RefreshToken newToken = createRefreshToken(user, userAgent, ipAddress);
-        logger.info("✅ Nuovo token generato: {} per utente {}", 
-                   newToken.getToken(), user.getEmail());
-        
+        logger.info("✅ Nuovo token generato: {} per utente {}",
+                newToken.getToken(), user.getEmail());
+
         return newToken;
     }
 
@@ -288,13 +289,13 @@ public class RefreshTokenService {
      */
     public void revokeToken(String tokenValue) {
         RefreshToken token = refreshTokenRepository.findByToken(tokenValue)
-            .orElseThrow(() -> new InvalidTokenException("Token non trovato"));
-        
+                .orElseThrow(() -> new InvalidTokenException("Token non trovato"));
+
         token.setRevoked(true);
         refreshTokenRepository.save(token);
-        
-        logger.info("🔒 Token revocato manualmente: {} (utente: {})", 
-                   tokenValue, token.getUser().getEmail());
+
+        logger.info("🔒 Token revocato manualmente: {} (utente: {})",
+                tokenValue, token.getUser().getEmail());
     }
 
     /**
@@ -365,21 +366,21 @@ public class RefreshTokenService {
     @Transactional
     public void cleanupExpiredTokens() {
         logger.info("🧹 Inizio pulizia token scaduti...");
-        
+
         Instant now = Instant.now();
-        
+
         // 1. Elimina token scaduti
         int expiredCount = refreshTokenRepository.deleteAllExpiredTokens(now);
         logger.info("Eliminati {} token scaduti", expiredCount);
-        
+
         // 2. Elimina token revocati vecchi (conserva ultimi 30 giorni per audit)
         Instant thirtyDaysAgo = now.minus(30, ChronoUnit.DAYS);
         int revokedCount = refreshTokenRepository.deleteRevokedTokensOlderThan(thirtyDaysAgo);
         logger.info("Eliminati {} token revocati vecchi", revokedCount);
-        
-        logger.info("Pulizia completata: {} token totali eliminati", 
-                   expiredCount + revokedCount);
-        
+
+        logger.info("Pulizia completata: {} token totali eliminati",
+                expiredCount + revokedCount);
+
         // TODO: Se volume troppo alto, invia alert agli amministratori
     }
 
@@ -389,18 +390,18 @@ public class RefreshTokenService {
      */
     public void checkSuspiciousActivity() {
         List<RefreshToken> suspicious = refreshTokenRepository.findSuspiciousTokens(Instant.now());
-        
+
         if (!suspicious.isEmpty()) {
-            logger.warn("Trovati {} token sospetti (revocati ma non scaduti)", 
-                       suspicious.size());
-            
+            logger.warn("Trovati {} token sospetti (revocati ma non scaduti)",
+                    suspicious.size());
+
             for (RefreshToken token : suspicious) {
-                logger.warn("   Token sospetto: {} | Utente: {} | Revocato il: {}", 
-                           token.getToken(), 
-                           token.getUser().getEmail(), 
-                           token.getCreatedAt());
+                logger.warn("   Token sospetto: {} | Utente: {} | Revocato il: {}",
+                        token.getToken(),
+                        token.getUser().getEmail(),
+                        token.getCreatedAt());
             }
-            
+
             // TODO: Invia report agli amministratori
         }
     }
